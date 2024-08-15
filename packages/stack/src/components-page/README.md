@@ -1,6 +1,6 @@
-# Stack SDK Components Documentation
+# Stack SDK Exports Documentation
 
-This documentation focuses on providing detailed information about the various components and functionalities available within a specific Stack SDK. The SDK is structured to support a broad range of features, including authentication, user management, application settings, and more, all aimed at enhancing application development efficiency.
+The Stack SDK provides a robust set of components, hooks, and utilities designed primarily for handling authentication and user management within React applications. This documentation focuses on exports that are relevant to the current SDK folder structure, principally dealing with user authentication processes, settings management, and user interface components that are utilized within the stack environment.
 
 ---
 
@@ -8,25 +8,68 @@ This documentation focuses on providing detailed information about the various c
 
 **Type**: Component
 
-**Description**: The `StackProvider` component is crucial as it sets up the context for the Stack application, ensuring that all child components have access to the necessary Stack context.
+**Description**: This component provides a React context for Stack SDK functionality. It is responsible for wrapping the root component and managing the lifecycle and state of the SDK for child components.
 
 **Usage**:
 ```jsx
-import { StackProvider } from 'path_to_stack_provider';
+import { StackProvider } from 'path-to-stack-sdk';
 
-function App() {
-  return (
-    <StackProvider>
-      <YourAppComponents />
-    </StackProvider>
+<StackProvider settings={{ apiKey: 'your_api_key_here' }}>
+  <App />
+</StackProvider>
+```
+
+**Properties**:
+- `settings`: `Object` - Configuration options for the Stack SDK.
+
+**Notes**: The `settings` object can include API key, project ID, and other necessary configuration details.
+
+---
+
+## useUser
+
+**Type**: Hook
+
+**Description**: Custom React hook to access user-related data.
+
+**Usage**:
+```jsx
+import { useUser } from 'path-to-stack-sdk';
+
+function UserProfile() {
+  const user = useUser();
+  return user ? (
+    <div>Welcome, {user.name}</div>
+  ) : (
+    <div>No user data available.</div>
   );
 }
 ```
 
-**Properties**:
-- `children`: `ReactNode` - The child components that will have access to the Stack context.
+**Returns**: `User | null` - Returns the current user object or null if no user is authenticated.
 
-**Notes**: It's essential to wrap your application's root component with `StackProvider` to ensure that all functionalities like authentication and user state management work seamlessly.
+**Notes**: Should be used inside components encapsulated by `StackProvider`.
+
+---
+
+## useStackApp
+
+**Type**: Hook
+
+**Description**: Hook to access Stack app specific functionalities like redirects.
+
+**Usage**:
+```jsx
+import { useStackApp } from 'path-to-stack-sdk';
+const app = useStackApp();
+
+// Usage example to redirect
+function LoginRedirect() {
+  app.redirectToSignIn();
+}
+```
+
+**Returns**: `Object` - Provides functionalities related to the Stack app like direct urls and action calls for redirections.
 
 ---
 
@@ -34,43 +77,22 @@ function App() {
 
 **Type**: Component
 
-**Description**: `StackHandler` is designed to handle various authentication and user management workflows based on the URL paths.
+**Description**: A handler component for routing and handling different authentication states and pages within an app.
 
 **Usage**:
 ```jsx
-import { StackHandler } from 'path_to_stack_handler';
+import { StackHandler } from 'path-to-stack-sdk';
 
-function App() {
-  return <StackHandler />;
+function AppRouting() {
+  return (
+    <Route path="/auth/:action" component={StackHandler} />
+  );
 }
 ```
 
-**Notes**: `StackHandler` dynamically renders components depending on the URL routes. It handles routes associated with sign-in, sign-up, account settings, etc., providing a seamless routing experience within the application.
+**Properties**: None directly; uses URL parameters for conditional rendering logic.
 
----
-
-## StackTheme
-
-**Type**: Type
-
-**Description**: Defines the theme structure used within the Stack ecosystem.
-
-**Usage**:
-```typescript
-import { StackTheme } from 'path_to_theme_provider';
-
-const theme: StackTheme = {
-  colors: {
-    primary: '#000',
-    secondary: '#fff'
-  }
-};
-```
-
-**Properties**:
-- `colors`: `Record<string, string>` - Defines the colors used across the application.
-
-**Notes**: Customize `StackTheme` to align with your branding requirements.
+**Notes**: It dynamically handles routes like sign-in, sign-up, password resets based on the URL parameters.
 
 ---
 
@@ -78,21 +100,17 @@ const theme: StackTheme = {
 
 **Type**: Component
 
-**Description**: Renders the sign-in form providing users the ability to log into the application.
+**Description**: Renders a sign-in page component.
 
 **Usage**:
 ```jsx
-import { SignIn } from 'path_to_sign_in';
+import { SignIn } from 'path-to-stack-sdk';
 
-function Login() {
-  return <SignIn />;
-}
+<SignIn />
 ```
 
 **Properties**:
-- `fullPage`: `boolean` (optional) - Determines whether the sign-in page should take up the full viewport.
-
-**Notes**: This component should be used in conjunction with the `StackHandler` to ensure proper routing and state management.
+- `fullPage`: `boolean` - Optional. If true, the signin page takes up the full page.
 
 ---
 
@@ -100,21 +118,19 @@ function Login() {
 
 **Type**: Component
 
-**Description**: Facilitates user registration by rendering the sign-up form.
+**Description**: Component for rendering a sign-up form interface.
 
 **Usage**:
 ```jsx
-import { SignUp } from 'path_to_sign_up';
+import { SignUp } from 'path-to-stack-sdk';
 
-function Register() {
-  return <SignUp />;
-}
+<SignUp />
 ```
 
 **Properties**:
-- `fullPage`: `boolean` (optional) - Specifies if the registration page should consume the full viewport.
+- `fullPage`: `boolean` - Determines if the signup form should be rendered as a full page.
 
-**Notes**: Use this component where the application's flow includes user self-registration.
+**Notes**: Uses internal Stack SDK hooks for handling creation of new user accounts.
 
 ---
 
@@ -122,22 +138,19 @@ function Register() {
 
 **Type**: Component
 
-**Description**: Manages the email verification process, offering a UI for users who need to verify their email address post-registration.
+**Description**: Renders an email verification component that handles verification processes.
 
 **Usage**:
 ```jsx
-import { EmailVerification } from 'path_to_email_verification';
+import { EmailVerification } from 'path-to-stack-sdk';
 
-function VerifyEmail() {
-  return <EmailVerification />;
-}
+<EmailVerification />
 ```
 
 **Properties**:
-- `searchParams`: `Record<string, string>` - Contains query parameters including the verification code.
-- `fullPage`: `boolean` (optional) - Determines if the component should be displayed as a full-page.
+- `searchParams`: `Object` - Parameters that should include the verification code.
 
-**Notes**: The component reads the email verification code from the URL parameters and proceeds with the verification process.
+**Notes**: Expected to receive the verification code through search params or URL parameters.
 
 ---
 
@@ -145,23 +158,57 @@ function VerifyEmail() {
 
 **Type**: Component
 
-**Description**: Allows users to reset their password via a user-friendly interface that requests the new password and confirms the reset using a code sent to their email.
+**Description**: Component to handle password reset functionality.
 
 **Usage**:
 ```jsx
-import { PasswordReset } from 'path_to_password_reset';
+import { PasswordReset } from 'path-to-stack-sdk';
 
-function ResetPassword() {
-  return <PasswordReset />;
-}
+<PasswordReset />
 ```
 
 **Properties**:
-- `searchParams`: `Record<string, string>` - Contains required parameters like the reset code.
-- `fullPage`: `boolean` (optional) - If true, renders the reset form in a full-page view.
-
-**Notes**: This component requires integration with server-side API to function correctly, handling requests for resetting passwords based on provided credentials.
+- `searchParams`: `Object` - Contains the reset code necessary for processing the password reset.
 
 ---
 
-This documentation is structured to guide developers through the usage, configuration, and integration of various Stack SDK components, enabling enhanced application functionalities seamlessly integrated with the broader technology stack.
+## ForgotPassword
+
+**Type**: Component
+
+**Description**: Provides a user interface for initiating a password reset process.
+
+**Usage**:
+```jsx
+import { ForgotPassword } from 'path-to-stack-sdk';
+
+<ForgotPassword />
+```
+
+**Properties**:
+- `fullPage`: `boolean` - Renders the component in a full page layout if set to true.
+
+**Notes**: This component is used when a user has forgotten their password and needs to initiate a reset process.
+
+---
+
+## OAuthButton
+
+**Type**: Component
+
+**Description**: Renders OAuth provider buttons for user authentication.
+
+**Usage**:
+```jsx
+import { OAuthButton } from 'path-to-stack-sdk';
+
+<OAuthButton />
+```
+
+**Properties**:
+- `provider`: `string` - Specifies the OAuth provider.
+
+**Notes**: Supports multiple OAuth providers including Google, Facebook, etc.
+
+### Notes
+Additional functionalities, including various user interface elements and deeper integration aspects, are described in their specific subsections, following the higher-level overview provided here. The comprehensive nature of the Stack SDK ensures that most needs related to user management and authentication within a modern web application can be met efficiently.
