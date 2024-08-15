@@ -1,136 +1,44 @@
-# Stack SDK Exports Documentation
+# Stack SDK Component Documentation
 
-The Stack SDK provides a robust set of components, hooks, and utilities designed primarily for handling authentication and user management within React applications. This documentation focuses on exports that are relevant to the current SDK folder structure, principally dealing with user authentication processes, settings management, and user interface components that are utilized within the stack environment.
+This documentation provides detailed information about each of the components and hooks exported from the Stack SDK, specifically from the components-page, hooks, and components folders. These components and hooks are designed to facilitate the development of authentication and user management features in applications using the Stack SDK.
 
 ---
 
-## StackProvider
+## AccountSettings
 
 **Type**: Component
 
-**Description**: This component provides a React context for Stack SDK functionality. It is responsible for wrapping the root component and managing the lifecycle and state of the SDK for child components.
+**Description**: This component allows users to manage their account settings, including profile details, password, email verification, and multi-factor authentication settings.
 
 **Usage**:
 ```jsx
-import { StackProvider } from 'path-to-stack-sdk';
-
-<StackProvider settings={{ apiKey: 'your_api_key_here' }}>
-  <App />
-</StackProvider>
+<AccountSettings fullPage={true} />
 ```
 
 **Properties**:
-- `settings`: `Object` - Configuration options for the Stack SDK.
+- `fullPage`: `boolean` - Specifies whether the component should be rendered as a full-page component.
 
-**Notes**: The `settings` object can include API key, project ID, and other necessary configuration details.
-
----
-
-## useUser
-
-**Type**: Hook
-
-**Description**: Custom React hook to access user-related data.
-
-**Usage**:
-```jsx
-import { useUser } from 'path-to-stack-sdk';
-
-function UserProfile() {
-  const user = useUser();
-  return user ? (
-    <div>Welcome, {user.name}</div>
-  ) : (
-    <div>No user data available.</div>
-  );
-}
-```
-
-**Returns**: `User | null` - Returns the current user object or null if no user is authenticated.
-
-**Notes**: Should be used inside components encapsulated by `StackProvider`.
+**Notes**: This component uses the `SidebarLayout` to provide a navigation panel for different settings sections.
 
 ---
 
-## useStackApp
-
-**Type**: Hook
-
-**Description**: Hook to access Stack app specific functionalities like redirects.
-
-**Usage**:
-```jsx
-import { useStackApp } from 'path-to-stack-sdk';
-const app = useStackApp();
-
-// Usage example to redirect
-function LoginRedirect() {
-  app.redirectToSignIn();
-}
-```
-
-**Returns**: `Object` - Provides functionalities related to the Stack app like direct urls and action calls for redirections.
-
----
-
-## StackHandler
+## AuthPage
 
 **Type**: Component
 
-**Description**: A handler component for routing and handling different authentication states and pages within an app.
+**Description**: Serves as a central authentication page allowing users to sign-in or sign-up using different methods like OAuth, magic link, or credentials.
 
 **Usage**:
 ```jsx
-import { StackHandler } from 'path-to-stack-sdk';
-
-function AppRouting() {
-  return (
-    <Route path="/auth/:action" component={StackHandler} />
-  );
-}
-```
-
-**Properties**: None directly; uses URL parameters for conditional rendering logic.
-
-**Notes**: It dynamically handles routes like sign-in, sign-up, password resets based on the URL parameters.
-
----
-
-## SignIn
-
-**Type**: Component
-
-**Description**: Renders a sign-in page component.
-
-**Usage**:
-```jsx
-import { SignIn } from 'path-to-stack-sdk';
-
-<SignIn />
+<AuthPage fullPage={true} type='sign-in' />
 ```
 
 **Properties**:
-- `fullPage`: `boolean` - Optional. If true, the signin page takes up the full page.
+- `fullPage`: `boolean` - Determines if the layout is rendered as full-page.
+- `type`: `'sign-in' | 'sign-up'` - Specifies the type of authentication action, either 'sign-in' or 'sign-up'.
+- `automaticRedirect`: `boolean` - If true, automatically redirects on successful sign-in/sign-up.
 
----
-
-## SignUp
-
-**Type**: Component
-
-**Description**: Component for rendering a sign-up form interface.
-
-**Usage**:
-```jsx
-import { SignUp } from 'path-to-stack-sdk';
-
-<SignUp />
-```
-
-**Properties**:
-- `fullPage`: `boolean` - Determines if the signup form should be rendered as a full page.
-
-**Notes**: Uses internal Stack SDK hooks for handling creation of new user accounts.
+**Notes**: The component dynamically adjusts available forms and options based on configuration settings like `signUpEnabled`, `credentialEnabled`, etc.
 
 ---
 
@@ -138,37 +46,18 @@ import { SignUp } from 'path-to-stack-sdk';
 
 **Type**: Component
 
-**Description**: Renders an email verification component that handles verification processes.
+**Description**: Handles the flow for verifying a user's email via a code sent to their email.
 
 **Usage**:
 ```jsx
-import { EmailVerification } from 'path-to-stack-sdk';
-
-<EmailVerification />
+<EmailVerification searchParams={{ code: 'your_verification_code' }} fullPage={true} />
 ```
 
 **Properties**:
-- `searchParams`: `Object` - Parameters that should include the verification code.
+- `searchParams`: `{ code?: string }` - Contains the verification code needed for the email verification.
+- `fullPage`: `boolean` - Whether to render this in full page mode.
 
-**Notes**: Expected to receive the verification code through search params or URL parameters.
-
----
-
-## PasswordReset
-
-**Type**: Component
-
-**Description**: Component to handle password reset functionality.
-
-**Usage**:
-```jsx
-import { PasswordReset } from 'path-to-stack-sdk';
-
-<PasswordReset />
-```
-
-**Properties**:
-- `searchParams`: `Object` - Contains the reset code necessary for processing the password reset.
+**Notes**: Uses caching for the verification process to enhance performance.
 
 ---
 
@@ -176,39 +65,53 @@ import { PasswordReset } from 'path-to-stack-sdk';
 
 **Type**: Component
 
-**Description**: Provides a user interface for initiating a password reset process.
+**Description**: Allows users to initiate a password reset process by entering their email to receive a reset link.
 
 **Usage**:
 ```jsx
-import { ForgotPassword } from 'path-to-stack-sdk';
-
-<ForgotPassword />
+<ForgotPassword fullPage={true} />
 ```
 
 **Properties**:
-- `fullPage`: `boolean` - Renders the component in a full page layout if set to true.
-
-**Notes**: This component is used when a user has forgotten their password and needs to initiate a reset process.
+- `fullPage`: `boolean` - Specifies if the component should occupy the whole page.
 
 ---
 
-## OAuthButton
+## MagicLinkCallback
 
 **Type**: Component
 
-**Description**: Renders OAuth provider buttons for user authentication.
+**Description**: Manages the callback process for a magic link authentication, handling scenarios like expired or already used links.
 
 **Usage**:
 ```jsx
-import { OAuthButton } from 'path-to-stack-sdk';
-
-<OAuthButton />
+<MagicLinkCallback searchParams={{ code: 'magic_link_code' }} fullPage={true} />
 ```
 
 **Properties**:
-- `provider`: `string` - Specifies the OAuth provider.
+- `searchParams`: `{ code: string }` - Parameters received from the URL which include the magic link code.
+- `fullPage`: `boolean` - Whether to render this in full page mode.
 
-**Notes**: Supports multiple OAuth providers including Google, Facebook, etc.
+---
 
-### Notes
-Additional functionalities, including various user interface elements and deeper integration aspects, are described in their specific subsections, following the higher-level overview provided here. The comprehensive nature of the Stack SDK ensures that most needs related to user management and authentication within a modern web application can be met efficiently.
+## OAuthCallback
+
+**Type**: Component
+
+**Description**: A callback handler for OAuth authentication processes, managing success or error states post OAuth flow.
+
+**Usage**:
+```jsx
+<OAuthCallback fullPage={true} />
+```
+
+**Properties**:
+- `fullPage`: `boolean` - Determines if the layout needs to be rendered as full-page.
+
+**Notes**: Handles redirection and error display post OAuth authentication.
+
+---
+
+## PasswordReset
+
+**Ty
