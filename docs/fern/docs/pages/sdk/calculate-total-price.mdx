@@ -1,0 +1,26 @@
+---
+title: calculateTotalPrice
+---
+
+# calculateTotalPrice
+
+Calculates the total price of items in a cart.
+
+## Parameters
+
+- `items`: An array of `CartItem` objects. Each `CartItem` should have `price` and `quantity` properties.
+
+## Example
+
+```tsx
+import { calculateTotalPrice } from '@stackframe/stack';
+
+const cartItems = [
+  { price: 10, quantity: 2 },
+  { price: 15, quantity: 1 },
+  { price: 5, quantity: 3 }
+];
+
+const total = calculateTotalPrice(cartItems);
+console.log(total); // Output: 45
+```
