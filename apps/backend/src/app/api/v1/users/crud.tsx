@@ -7,11 +7,12 @@ import { KnownErrors } from "@stackframe/stack-shared";
 import { currentUserCrud } from "@stackframe/stack-shared/dist/interface/crud/current-user";
 import { UsersCrud, usersCrud } from "@stackframe/stack-shared/dist/interface/crud/users";
 import { userIdOrMeSchema, yupObject, yupString } from "@stackframe/stack-shared/dist/schema-fields";
+import { validateBase64Image } from "@stackframe/stack-shared/dist/utils/base64";
 import { decodeBase64 } from "@stackframe/stack-shared/dist/utils/bytes";
 import { StackAssertionError, StatusError, captureError, throwErr } from "@stackframe/stack-shared/dist/utils/errors";
 import { hashPassword } from "@stackframe/stack-shared/dist/utils/password";
 import { createLazyProxy } from "@stackframe/stack-shared/dist/utils/proxies";
-import { teamPrismaToCrud } from "../teams/crud";
+import { teamPrismaToCrud, teamsCrudHandlers } from "../teams/crud";
 
 export const userFullInclude = {
   projectUserOAuthAccounts: {
@@ -29,7 +30,10 @@ export const userFullInclude = {
   },
 } satisfies Prisma.ProjectUserInclude;
 
-export const userPrismaToCrud = (prisma: Prisma.ProjectUserGetPayload<{ include: typeof userFullInclude}>): UsersCrud["Admin"]["Read"] => {
+export const userPrismaToCrud = (
+  prisma: Prisma.ProjectUserGetPayload<{ include: typeof userFullInclude}>,
+  lastActiveAtMillis: number,
+): UsersCrud["Admin"]["Read"] => {
   const selectedTeamMembers = prisma.teamMembers;
   if (selectedTeamMembers.length > 1) {
     throw new StackAssertionError("User cannot have more than one selected team; this should never happen");
@@ -80,6 +84,7 @@ export const userPrismaToCrud = (prisma: Prisma.ProjectUserGetPayload<{ include:
     profile_image_url: prisma.profileImageUrl,
     signed_up_at_millis: prisma.createdAt.getTime(),
     client_metadata: prisma.clientMetadata,
+    client_read_only_metadata: prisma.clientReadOnlyMetadata,
     server_metadata: prisma.serverMetadata,
     has_password: !!prisma.passwordHash,
     auth_with_email: prisma.authWithEmail,
@@ -93,7 +98,48 @@ export const userPrismaToCrud = (prisma: Prisma.ProjectUserGetPayload<{ include:
     connected_accounts: connectedAccounts,
     selected_team_id: selectedTeamMembers[0]?.teamId ?? null,
     selected_team: selectedTeamMembers[0] ? teamPrismaToCrud(selectedTeamMembers[0]?.team) : null,
+    last_active_at_millis: lastActiveAtMillis,
   };
+};
+
+export const getUserLastActiveAtMillis = async (userId: string, fallbackTo: number | Date): Promise<number> => {
+  const event = await prismaClient.event.findFirst({
+    where: {
+      data: {
+        path: ["$.userId"],
+        equals: userId,
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  return event?.createdAt.getTime() ?? (
+    typeof fallbackTo === "number" ? fallbackTo : fallbackTo.getTime()
+  );
+};
+
+// same as userIds.map(userId => getUserLastActiveAtMillis(userId, fallbackTo)), but uses a single query
+export const getUsersLastActiveAtMillis = async (userIds: string[], fallbackTo: (number | Date)[]): Promise<number[]> => {
+  if (userIds.length === 0) {
+    // Prisma.join throws an error if the array is empty, so we need to handle that case
+    return [];
+  }
+
+  const events = await prismaClient.$queryRaw<Array<{ userId: string, lastActiveAt: Date }>>`
+    SELECT data->>'userId' as "userId", MAX("createdAt") as "lastActiveAt"
+    FROM "Event"
+    WHERE data->>'userId' = ANY(${Prisma.sql`ARRAY[${Prisma.join(userIds)}]`})
+    GROUP BY data->>'userId'
+  `;
+
+  return userIds.map((userId, index) => {
+    const event = events.find(e => e.userId === userId);
+    return event ? event.lastActiveAt.getTime() : (
+      typeof fallbackTo[index] === "number" ? (fallbackTo[index] as number) : (fallbackTo[index] as Date).getTime()
+    );
+  });
 };
 
 export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersCrud, {
@@ -118,7 +164,7 @@ export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersC
       throw new KnownErrors.UserNotFound();
     }
 
-    return userPrismaToCrud(db);
+    return userPrismaToCrud(db, await getUserLastActiveAtMillis(params.user_id, db.createdAt));
   },
   onList: async ({ auth, query }) => {
     const db = await prismaClient.projectUser.findMany({
@@ -135,8 +181,10 @@ export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersC
       include: userFullInclude,
     });
 
+    const lastActiveAtMillis = await getUsersLastActiveAtMillis(db.map(user => user.projectUserId), db.map(user => user.createdAt));
+
     return {
-      items: db.map(userPrismaToCrud),
+      items: db.map((user, index) => userPrismaToCrud(user, lastActiveAtMillis[index])),
       is_paginated: false,
     };
   },
@@ -168,6 +216,7 @@ export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersC
         projectId: auth.project.id,
         displayName: data.display_name === undefined ? undefined : (data.display_name || null),
         clientMetadata: data.client_metadata === null ? Prisma.JsonNull : data.client_metadata,
+        clientReadOnlyMetadata: data.client_read_only_metadata === null ? Prisma.JsonNull : data.client_read_only_metadata,
         serverMetadata: data.server_metadata === null ? Prisma.JsonNull : data.server_metadata,
         primaryEmail: data.primary_email,
         primaryEmailVerified: data.primary_email_verified ?? false,
@@ -189,7 +238,25 @@ export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersC
       include: userFullInclude,
     });
 
-    const result = userPrismaToCrud(db);
+    const result = userPrismaToCrud(db, await getUserLastActiveAtMillis(db.projectUserId, new Date()));
+
+    if (auth.project.config.create_team_on_sign_up) {
+      await teamsCrudHandlers.adminCreate({
+        data: {
+          display_name: data.display_name ?
+            `${data.display_name}'s Team` :
+            data.primary_email ?
+              `${data.primary_email}'s Team` :
+              "Personal Team"
+        },
+        query: {
+          add_current_user: "true",
+        },
+        project: auth.project,
+        user: result,
+      });
+    }
+
 
     await sendUserCreatedWebhook({
       projectId: auth.project.id,
@@ -247,6 +314,7 @@ export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersC
         data: {
           displayName: data.display_name === undefined ? undefined : (data.display_name || null),
           clientMetadata: data.client_metadata === null ? Prisma.JsonNull : data.client_metadata,
+          clientReadOnlyMetadata: data.client_read_only_metadata === null ? Prisma.JsonNull : data.client_read_only_metadata,
           serverMetadata: data.server_metadata === null ? Prisma.JsonNull : data.server_metadata,
           primaryEmail: data.primary_email,
           primaryEmailVerified: data.primary_email_verified ?? (data.primary_email !== undefined ? false : undefined),
@@ -259,10 +327,20 @@ export const usersCrudHandlers = createLazyProxy(() => createCrudHandlers(usersC
         include: userFullInclude,
       });
 
+      // if user password changed, reset all refresh tokens
+      if (data.password !== undefined) {
+        await prismaClient.projectUserRefreshToken.deleteMany({
+          where: {
+            projectId: auth.project.id,
+            projectUserId: params.user_id,
+          },
+        });
+      }
+
       return db;
     });
 
-    const result = userPrismaToCrud(db);
+    const result = userPrismaToCrud(db, await getUserLastActiveAtMillis(params.user_id, new Date()));
 
     await sendUserUpdatedWebhook({
       projectId: auth.project.id,
@@ -301,19 +379,26 @@ export const currentUserCrudHandlers = createLazyProxy(() => createCrudHandlers(
     return await usersCrudHandlers.adminRead({
       project: auth.project,
       user_id: auth.user?.id ?? throwErr(new KnownErrors.CannotGetOwnUserWithoutUser()),
+      allowedErrorTypes: [StatusError]
     });
   },
   async onUpdate({ auth, data }) {
+    if (auth.type === 'client' && data.profile_image_url && !validateBase64Image(data.profile_image_url)) {
+      throw new StatusError(400, "Invalid profile image URL");
+    }
+
     return await usersCrudHandlers.adminUpdate({
       project: auth.project,
       user_id: auth.user?.id ?? throwErr(new KnownErrors.CannotGetOwnUserWithoutUser()),
       data,
+      allowedErrorTypes: [StatusError]
     });
   },
   async onDelete({ auth }) {
     return await usersCrudHandlers.adminDelete({
       project: auth.project,
       user_id: auth.user?.id ?? throwErr(new KnownErrors.CannotGetOwnUserWithoutUser()),
+      allowedErrorTypes: [StatusError]
     });
   },
 }));

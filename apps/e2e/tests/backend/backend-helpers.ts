@@ -3,6 +3,7 @@ import { encodeBase64 } from "@stackframe/stack-shared/dist/utils/bytes";
 import { generateSecureRandomString } from "@stackframe/stack-shared/dist/utils/crypto";
 import { StackAssertionError, throwErr } from "@stackframe/stack-shared/dist/utils/errors";
 import { filterUndefined } from "@stackframe/stack-shared/dist/utils/objects";
+import * as jose from "jose";
 import { expect } from "vitest";
 import { Context, Mailbox, NiceRequestInit, NiceResponse, STACK_BACKEND_BASE_URL, STACK_INTERNAL_PROJECT_ADMIN_KEY, STACK_INTERNAL_PROJECT_CLIENT_KEY, STACK_INTERNAL_PROJECT_ID, STACK_INTERNAL_PROJECT_SERVER_KEY, createMailbox, localRedirectUrl, niceFetch, updateCookiesFromResponse } from "../helpers";
 
@@ -21,11 +22,15 @@ export const backendContext = new Context<BackendContext, Partial<BackendContext
     mailbox: createMailbox(),
     userAuth: null,
   }),
-  (acc, update) => ({
-    ...acc,
-    ...filterUndefined(update),
-  }),
+  (acc, update) => {
+    return {
+      ...acc,
+      ...filterUndefined(update),
+    };
+  },
 );
+
+const jwks = jose.createRemoteJWKSet(new URL("/.well-known/jwks.json", STACK_BACKEND_BASE_URL));
 
 export type ProjectKeys = "no-project" | {
   projectId: string,
@@ -92,6 +97,7 @@ export async function niceBackendFetch(url: string | URL, options?: Omit<NiceReq
       } : {},
       "x-stack-access-token": userAuth?.accessToken,
       "x-stack-refresh-token": userAuth?.refreshToken,
+      "x-stack-disable-artificial-development-delay": "yes",
       ...Object.fromEntries(new Headers(filterUndefined(headers ?? {}) as any).entries()),
     }),
   });
@@ -113,31 +119,110 @@ export async function niceBackendFetch(url: string | URL, options?: Omit<NiceReq
 
 
 export namespace Auth {
-  export async function expectToBeSignedIn() {
-    const response = await niceBackendFetch("/api/v1/users/me", { accessType: "client" });
-    expect(response).toEqual({
-      status: 200,
-      headers: expect.anything(),
-      body: expect.anything(),
-    });
-    return response;
+  export async function ensureParsableAccessToken() {
+    const accessToken = backendContext.value.userAuth?.accessToken;
+    if (accessToken) {
+      const { payload } = await jose.jwtVerify(accessToken, jwks);
+      expect(payload).toEqual({
+        "exp": expect.any(Number),
+        "iat": expect.any(Number),
+        "iss": "https://access-token.jwt-signature.stack-auth.com",
+        "projectId": expect.any(String),
+        "sub": expect.any(String),
+      });
+    }
   }
 
-  export async function expectToBeSignedOut() {
+  /**
+   * Valid session & valid access token: OK
+   * Valid session & invalid access token: OK
+   * Invalid session & valid access token: Error
+   * Invalid session & invalid access token: Error
+   */
+  export async function expectSessionToBeValid() {
+    const response = await niceBackendFetch("/api/v1/auth/sessions/current/refresh", { method: "POST", accessType: "client" });
+    if (response.status !== 200) {
+      throw new StackAssertionError("Expected session to be valid, but was actually invalid.", { response });
+    }
+    expect(response).toEqual({
+      status: 200,
+      headers: expect.objectContaining({}),
+      body: expect.objectContaining({}),
+    });
+  }
+
+  /**
+   * Valid session & valid access token: Error
+   * Valid session & invalid access token: Error
+   * Invalid session & valid access token: OK
+   * Invalid session & invalid access token: OK
+   */
+  export async function expectSessionToBeInvalid() {
+    const response = await niceBackendFetch("/api/v1/auth/sessions/current/refresh", { method: "POST", accessType: "client" });
+    expect(response.status).not.toEqual(200);
+  }
+
+  /**
+   * Valid session & valid access token: OK
+   * Valid session & invalid access token: Error
+   * Invalid session & valid access token: OK
+   * Invalid session & invalid access token: Error
+   */
+  export async function expectAccessTokenToBeInvalid() {
+    await ensureParsableAccessToken();
     const response = await niceBackendFetch("/api/v1/users/me", { accessType: "client" });
-    expect(response).toMatchInlineSnapshot(`
-      NiceResponse {
-        "status": 400,
-        "body": {
-          "code": "CANNOT_GET_OWN_USER_WITHOUT_USER",
-          "error": "You have specified 'me' as a userId, but did not provide authentication for a user.",
-        },
-        "headers": Headers {
-          "x-stack-known-error": "CANNOT_GET_OWN_USER_WITHOUT_USER",
-          <some fields may have been hidden>,
-        },
-      }
-    `);
+    if (response.status === 200) {
+      throw new StackAssertionError("Expected access token to be invalid, but was actually valid.", { response });
+    }
+  }
+
+  /**
+   * Valid session & valid access token: OK
+   * Valid session & invalid access token: Error
+   * Invalid session & valid access token: OK
+   * Invalid session & invalid access token: Error
+   */
+  export async function expectAccessTokenToBeValid() {
+    await ensureParsableAccessToken();
+    const response = await niceBackendFetch("/api/v1/users/me", { accessType: "client" });
+    if (response.status !== 200) {
+      throw new StackAssertionError("Expected access token to be valid, but was actually invalid.", { response });
+    }
+  }
+
+  /**
+   * Valid session & valid access token: OK
+   * Valid session & invalid access token: Error
+   * Invalid session & valid access token: Error
+   * Invalid session & invalid access token: Error
+   *
+   * (see comment in the function for rationale, and why "invalid refresh token but valid access token" is not
+   * considered "signed in")
+   */
+  export async function expectToBeSignedIn() {
+    // there is a world where we would accept either access token OR session to be "signed in", instead of both
+    // however, it's better to be strict and throw an error if either is invalid; this helps catch bugs
+    // if you really want to check only one of them, use expectSessionToBeValid or expectAccessTokenToBeValid
+    // for more information, see the comment in expectToBeSignedOut
+    await Auth.expectAccessTokenToBeValid();
+    await Auth.expectSessionToBeValid();
+  }
+
+  /**
+   * Valid session & valid access token: Error
+   * Valid session & invalid access token: Error
+   * Invalid session & valid access token: Error
+   * Invalid session & invalid access token: OK
+   */
+  export async function expectToBeSignedOut() {
+    await Auth.expectAccessTokenToBeInvalid();
+
+    // usually, when we mean "signed out" we mean "both access token AND session are invalid"; we'd rather be strict
+    // so, we additionally check the session
+    // this has the weird side effect that expectToBeSignedIn (which is also strict, checking that access token AND
+    // session are valid) may throw, even if expectToBeSignedOut also throws
+    // if you run into something like that in your tests, use expectSessionToBeInvalid instead
+    await Auth.expectSessionToBeInvalid();
   }
 
   export async function signOut() {
@@ -179,7 +264,8 @@ export namespace Auth {
       `);
       const messages = await mailbox.fetchMessages({ noBody: true });
       const subjects = messages.map((message) => message.subject);
-      expect(subjects).toContain("Sign in to Stack Dashboard");
+      const containsSubstring = subjects.some(str => str.includes("Sign in to"));
+      expect(containsSubstring).toBe(true);
       return {
         sendSignInCodeResponse: response,
       };
