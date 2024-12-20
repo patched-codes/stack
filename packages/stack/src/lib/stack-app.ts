@@ -2305,7 +2305,7 @@ type Auth = {
 type BaseUser = {
   readonly id: string,
 
-  readonly displayName: string | null,
+  readonly displayName: string,
 
   /**
    * The user's email address.
