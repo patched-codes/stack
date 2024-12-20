@@ -1,0 +1,32 @@
+---
+title: useStackFrameApi
+---
+
+# useStackFrameApi
+
+A custom hook that provides access to the StackFrame API client.
+
+## Parameters
+
+- `options` (optional): An object with the following properties:
+  - `apiKey` (optional): A string representing the API key for authentication.
+
+## Example
+
+```tsx
+import { useStackFrameApi } from '@stackframe/stack';
+
+function MyComponent() {
+  const api = useStackFrameApi({
+    apiKey: 'your-api-key-here',
+  });
+
+  // Use the api object to make API calls
+  // For example:
+  // api.someEndpoint.someMethod()
+
+  return (
+    // Your component JSX
+  );
+}
+```
